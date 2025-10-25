@@ -8,6 +8,7 @@ import { Post } from './db/schema'
 import {
   baselineRegexKeywords,
   getAuthorPriority,
+  hasFrenchSignal,
   vtuberTextKeywords,
 } from './data/vtuberRegistry'
 
@@ -19,11 +20,17 @@ export class FirehoseSubscription extends FirehoseSubscriptionBase {
 
     const postsToDelete = ops.posts.deletes.map((del) => del.uri)
     const postsToCreate: Insertable<Post>[] = []
+    const logPosts = shouldLogPosts()
 
     for (const create of ops.posts.creates) {
       const priority = getAuthorPriority(create.author)
       const text = create.record.text ?? ''
       const normalizedText = text.toLowerCase()
+      const languages =
+        create.record.langs?.map((lang) => lang.toLowerCase()) ?? []
+      const hasFrenchLang = languages.includes('fr')
+      const hasEnglishLang = languages.includes('en')
+      const hasFrenchMarkers = hasFrenchSignal(text)
       const hasExcludedKeyword = excludedTextKeywords.some((keyword) =>
         normalizedText.includes(keyword),
       )
@@ -38,6 +45,22 @@ export class FirehoseSubscription extends FirehoseSubscriptionBase {
         create.record.langs?.some((lang) =>
           allowedLanguageCodes.has(lang.toLowerCase()),
         ) ?? false
+
+      if (hasEnglishLang && !hasFrenchLang && !hasFrenchMarkers) {
+        if (logPosts) {
+          /*console.log(
+            '[firehose] skipped english-only post',
+            formatLogPayload({
+              uri: create.uri,
+              author: create.author,
+              priority,
+              text,
+              reason: 'english-no-fr-signal',
+            }),
+          )*/
+        }
+        continue
+      }
 
       if (priority === 0) {
         if (!hasAllowedLanguage) continue
@@ -55,6 +78,18 @@ export class FirehoseSubscription extends FirehoseSubscriptionBase {
         priority,
         indexedAt: new Date().toISOString(),
       })
+
+      if (logPosts) {
+        console.log(
+          '[firehose] accepted post',
+          formatLogPayload({
+            uri: create.uri,
+            author: create.author,
+            priority,
+            text,
+          }),
+        )
+      }
     }
 
     if (postsToDelete.length > 0) {
@@ -75,4 +110,19 @@ export class FirehoseSubscription extends FirehoseSubscriptionBase {
 
 const allowedLanguageCodes = new Set(['fr', 'en'])
 
-const excludedTextKeywords = ['ririmiaou']
+const excludedTextKeywords = ['ririmiaou', 'ririgaki', 'ai generated', 'genai']
+
+const shouldLogPosts = (): boolean =>
+  (process.env.FEEDGEN_LOG_POSTS ?? '').toLowerCase() === 'true'
+
+const formatLogPayload = (payload: {
+  uri: string
+  author: string
+  priority: number
+  text: string
+  reason?: string
+}) => ({
+  ...payload,
+  text:
+    payload.text.length > 280 ? `${payload.text.slice(0, 280)}…` : payload.text,
+})

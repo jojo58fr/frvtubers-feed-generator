@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { QueryParams } from '../lexicon/types/app/bsky/feed/getFeedSkeleton'
 import { AppContext } from '../config'
 
@@ -5,43 +6,49 @@ import { AppContext } from '../config'
 export const shortname = 'frvtubers'
 
 export const handler = async (ctx: AppContext, params: QueryParams) => {
+  const fetchLimit = Math.min(Math.max(params.limit * 3, params.limit + 10), 200)
+
   let builder = ctx.db
     .selectFrom('post')
     .selectAll()
-    .orderBy('priority', 'desc')
     .orderBy('indexedAt', 'desc')
+    .orderBy('priority', 'desc')
     .orderBy('cid', 'desc')
-    .limit(params.limit)
 
   if (params.cursor) {
     const cursor = decodeCursor(params.cursor)
     builder = builder.where(({ eb, or, and }) =>
       or([
-        eb('post.priority', '<', cursor.priority),
+        eb('post.indexedAt', '<', cursor.indexedAt),
         and([
-          eb('post.priority', '=', cursor.priority),
-          eb('post.indexedAt', '<', cursor.indexedAt),
+          eb('post.indexedAt', '=', cursor.indexedAt),
+          eb('post.priority', '<', cursor.priority),
         ]),
         and([
-          eb('post.priority', '=', cursor.priority),
           eb('post.indexedAt', '=', cursor.indexedAt),
+          eb('post.priority', '=', cursor.priority),
           eb('post.cid', '<', cursor.cid),
         ]),
       ]),
     )
   }
-  const res = await builder.execute()
+  const candidates = await builder.limit(fetchLimit).execute()
 
-  const feed = res.map((row) => ({
+  const selected = selectWeightedPosts(
+    candidates as unknown as SelectedPost[],
+    params.limit,
+  )
+
+  const feed = selected.map((row) => ({
     post: row.uri,
   }))
 
   let cursor: string | undefined
-  const last = res.at(-1)
+  const last = selected.at(-1)
   if (last) {
     cursor = encodeCursor({
-      priority: last.priority ?? 0,
       indexedAt: last.indexedAt,
+      priority: last.priority ?? 0,
       cid: last.cid,
     })
   }
@@ -53,8 +60,8 @@ export const handler = async (ctx: AppContext, params: QueryParams) => {
 }
 
 type CursorState = {
-  priority: number
   indexedAt: string
+  priority: number
   cid: string
 }
 
@@ -62,16 +69,80 @@ const cursorDelimiter = '::'
 
 const encodeCursor = (cursor: CursorState): string =>
   [
-    cursor.priority.toString(10),
     cursor.indexedAt,
+    cursor.priority.toString(10),
     cursor.cid,
   ].join(cursorDelimiter)
 
 const decodeCursor = (cursor: string): CursorState => {
-  const [priority, indexedAt, cid] = cursor.split(cursorDelimiter)
+  const [indexedAt, priority, cid] = cursor.split(cursorDelimiter)
   return {
-    priority: Number(priority) || 0,
     indexedAt,
+    priority: Number(priority) || 0,
     cid,
   }
+}
+
+type SelectedPost = {
+  uri: string
+  cid: string
+  indexedAt: string
+  priority: number
+}
+
+const selectWeightedPosts = (
+  posts: Array<SelectedPost>,
+  limit: number,
+): Array<SelectedPost> => {
+  if (posts.length <= limit) {
+    return posts.slice(0, limit)
+  }
+
+  const selected: SelectedPost[] = []
+  const used = new Set<string>()
+
+  for (const post of posts) {
+    if (selected.length >= limit) break
+    const acceptance =
+      baseAcceptanceProbability[normalizePriority(post.priority)] ?? 0.5
+    if (acceptance >= 1) {
+      selected.push(post)
+      used.add(post.uri)
+      continue
+    }
+    const score = deterministicScore(post.uri)
+    if (score <= acceptance) {
+      selected.push(post)
+      used.add(post.uri)
+    }
+  }
+
+  if (selected.length < limit) {
+    for (const post of posts) {
+      if (used.has(post.uri)) continue
+      selected.push(post)
+      used.add(post.uri)
+      if (selected.length >= limit) break
+    }
+  }
+
+  return selected.slice(0, limit)
+}
+
+const baseAcceptanceProbability: Record<number, number> = {
+  2: 1,
+  1: 0.65,
+  0: 0.35,
+}
+
+const normalizePriority = (priority: number): number => {
+  if (priority >= 2) return 2
+  if (priority <= 0) return 0
+  return priority
+}
+
+const deterministicScore = (uri: string): number => {
+  const hash = createHash('sha256').update(uri).digest()
+  const value = hash.readUInt32BE(0)
+  return value / 0xffffffff
 }

@@ -321,3 +321,47 @@ function normalizeIdentifier(value: string): string | undefined {
   if (!normalized) return undefined
   return normalized
 }
+
+const frenchSignalStrings = [
+  'frvtuber',
+  'frvtubers',
+  'fr vtuber',
+  'vtuber fr',
+  'vtubeur',
+  'vtubeuse',
+  'vtbfr',
+  'vtuber français',
+  'vtuber francaise',
+  'vtuber française',
+  'vtubeur fr',
+  'vtubeuse fr',
+  'qcvtuber',
+  'vtuberqc',
+  '#frvtuber',
+  '#frvtubers',
+  '#vtuberfr',
+  '#vtbfr',
+  '#qcvtuber',
+  '#vtuberqc',
+] as const
+
+const frenchSignalRegexes = [
+  /\bfr[\s\-]?vtuber[s]?\b/i,
+  /\bvtuber[\s\-]?fr\b/i,
+  /\bvtubeur[s]?\b/i,
+  /\bvtubeuse[s]?\b/i,
+  /\bqcvtuber[s]?\b/i,
+  /\bvtuberqc\b/i,
+  /\bvtuber\s*français\b/i,
+  /\bvtuber\s*francaise\b/i,
+  /\bvtuber\s*française\b/i,
+] as const
+
+export const hasFrenchSignal = (text: string | undefined): boolean => {
+  if (!text) return false
+  const lower = text.toLowerCase()
+  if (frenchSignalStrings.some((keyword) => lower.includes(keyword))) {
+    return true
+  }
+  return frenchSignalRegexes.some((regex) => regex.test(text))
+}
