@@ -27,3 +27,20 @@ migrations['001'] = {
     await db.schema.dropTable('sub_state').execute()
   },
 }
+
+migrations['002'] = {
+  async up(db: Kysely<unknown>) {
+    await db.schema
+      .alterTable('post')
+      .addColumn('author', 'varchar', (col) => col.notNull().defaultTo(''))
+      .execute()
+    await db.schema
+      .alterTable('post')
+      .addColumn('priority', 'integer', (col) => col.notNull().defaultTo(0))
+      .execute()
+  },
+  async down(db: Kysely<unknown>) {
+    await db.schema.alterTable('post').dropColumn('priority').execute()
+    await db.schema.alterTable('post').dropColumn('author').execute()
+  },
+}

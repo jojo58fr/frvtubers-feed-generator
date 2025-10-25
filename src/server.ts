@@ -9,6 +9,7 @@ import { createDb, Database, migrateToLatest } from './db'
 import { FirehoseSubscription } from './subscription'
 import { AppContext, Config } from './config'
 import wellKnown from './well-known'
+import { startFrVtubersTeamSync } from './services/frvtubersTeamSync'
 
 export class FeedGenerator {
   public app: express.Application
@@ -64,6 +65,7 @@ export class FeedGenerator {
   async start(): Promise<http.Server> {
     await migrateToLatest(this.db)
     this.firehose.run(this.cfg.subscriptionReconnectDelay)
+    startFrVtubersTeamSync()
     this.server = this.app.listen(this.cfg.port, this.cfg.listenhost)
     await events.once(this.server, 'listening')
     return this.server

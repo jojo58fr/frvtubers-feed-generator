@@ -23,12 +23,17 @@ export abstract class FirehoseSubscriptionBase {
       getParams: () => this.getCursor(),
       validate: (value: unknown) => {
         try {
+          const coerced = coerceSubscribeReposMessage(value)
           return lexicons.assertValidXrpcMessage<RepoEvent>(
             ids.ComAtprotoSyncSubscribeRepos,
-            value,
+            coerced,
           )
         } catch (err) {
-          console.error('repo subscription skipped invalid message', err)
+          console.error(
+            'repo subscription skipped invalid message',
+            err,
+            value,
+          )
         }
       },
     })
@@ -188,4 +193,32 @@ const fixBlobRefs = (obj: unknown): unknown => {
     }, {} as Record<string, unknown>)
   }
   return obj
+}
+
+function coerceSubscribeReposMessage(value: unknown): unknown {
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+  const msg = value as Record<string, unknown>
+  const seq = msg.seq
+  let coerced = msg
+
+  if (typeof seq === 'string') {
+    const parsed = Number.parseInt(seq, 10)
+    if (!Number.isNaN(parsed)) {
+      coerced = { ...coerced, seq: parsed }
+    }
+  } else if (typeof seq === 'number' && !Number.isInteger(seq)) {
+    coerced = { ...coerced, seq: Math.trunc(seq) }
+  }
+
+  if (
+    coerced.seq === undefined ||
+    coerced.seq === null ||
+    (typeof coerced.seq !== 'number' && typeof coerced.seq !== 'bigint')
+  ) {
+    coerced = { ...coerced, seq: 0 }
+  }
+
+  return coerced
 }

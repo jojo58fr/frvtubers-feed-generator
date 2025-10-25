@@ -57,6 +57,22 @@ After successfully running the script, you should be able to see your feed from 
 
 Install dependencies with `yarn` and then run the server with `yarn start`. This will start the server on port 3000, or what's defined in `.env`. You can then watch the firehose output in the console and access the output of the default custom ALF feed at [http://localhost:3000/xrpc/app.bsky.feed.getFeedSkeleton?feed=at://did:example:alice/app.bsky.feed.generator/whats-alf](http://localhost:3000/xrpc/app.bsky.feed.getFeedSkeleton?feed=at://did:example:alice/app.bsky.feed.generator/whats-alf).
 
+### Refreshing the FR Vtuber roster
+
+The FRVtubers feed now relies on two generated data sets:
+
+- `src/data/generated/frvtubersTeam.ts` lists the Twitch team roster.
+- `src/data/generated/vtuberCatalog.ts` lists Bluesky accounts detected as francophone vtubers and links them to Twitch logins when possible.
+
+To refresh both data sets:
+
+1. Add your Twitch API credentials to `.env` (`TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and optionally `TWITCH_TEAM_NAME`).
+2. Run `yarn refreshVtuberData` (or `npx ts-node scripts/fetchFrvtubersTeam.ts && npx ts-node scripts/buildVtuberCatalog.ts`).
+
+The catalog builder queries the public Bluesky search API with a set of FR vtuber keywords. It extracts `twitch.tv/...` links from profile descriptions, uses that to identify Twitch team members, and publishes the merged roster. You can add manual overrides in `src/data/manualOverrides.ts` if an account is missing or needs to be forced into the team priority bucket.
+
+Once the server is running, it will also refresh the Twitch team membership in-memory every hour (configurable with `TWITCH_TEAM_REFRESH_INTERVAL_MS`). Supplying valid Twitch API credentials is required for the background updater to run; otherwise, the feed continues using the last generated roster.
+
 ## Some Details
 
 ### Skeleton Metadata

@@ -1,8 +1,15 @@
+import { Insertable } from 'kysely'
 import {
   OutputSchema as RepoEvent,
   isCommit,
 } from './lexicon/types/com/atproto/sync/subscribeRepos'
 import { FirehoseSubscriptionBase, getOpsByType } from './util/subscription'
+import { Post } from './db/schema'
+import {
+  baselineRegexKeywords,
+  getAuthorPriority,
+  vtuberTextKeywords,
+} from './data/vtuberRegistry'
 
 export class FirehoseSubscription extends FirehoseSubscriptionBase {
   async handleEvent(evt: RepoEvent) {
@@ -10,63 +17,45 @@ export class FirehoseSubscription extends FirehoseSubscriptionBase {
 
     const ops = await getOpsByType(evt)
 
-    // This logs the text of every post off the firehose.
-    // Just for fun :)
-    // Delete before actually using
-    for (const post of ops.posts.creates) {
-      console.log(post.record.text)
-    }
-
     const postsToDelete = ops.posts.deletes.map((del) => del.uri)
-        
-    const postsToCreate = ops.posts.creates
-        .filter((create) => {
-          if (!create.record.langs?.includes('fr') && !create.record.langs?.includes('en'))
-            return false;
-  
-          const normalText = [
-            "vtubing",
-            "vtubbing",
-            "vtuber",
-            "vtubeur",
-            "vtb",
-            "vtuberfr",
-            "vtbfr",
-            "vtubeurfr",
-            "vtubeur français",
-            "vtuber français",
-            "vtuber française"
-          ];
-          
-          const keywords = [
-            /\bvtuberfr\b/,
-            /\bfrvtubers\b/,
-            /\bvtuberqc\b/,
-            /\bqcvtuber\b/,
-            /\bvtubeurfr\b/,
-            /\bvtubersfr\b/,
-            /\bfrvtuber\b/,
-          ]
-  
-          const excludedKeywords = [
-            "ririmiaou",
-          ]
-          
-  
-          return ((keywords.some((key) => key.test(create.record.text))
-    ||	normalText.some((key) => create.record.text.toLowerCase().includes(key))
-    )
-      && !excludedKeywords.some((key) => create.record.text.toLowerCase().includes(key))
-    )
-        })
-        .map((create) => {
-          // map alf-related posts to a db row
-          return {
-            uri: create.uri,
-            cid: create.cid,
-            indexedAt: new Date().toISOString(),
-          }
-        });
+    const postsToCreate: Insertable<Post>[] = []
+
+    for (const create of ops.posts.creates) {
+      const priority = getAuthorPriority(create.author)
+      const text = create.record.text ?? ''
+      const normalizedText = text.toLowerCase()
+      const hasExcludedKeyword = excludedTextKeywords.some((keyword) =>
+        normalizedText.includes(keyword),
+      )
+      if (hasExcludedKeyword) continue
+
+      const hasKeywordMatch =
+        vtuberTextKeywords.some((keyword) =>
+          normalizedText.includes(keyword),
+        ) || baselineRegexKeywords.some((regex) => regex.test(text))
+
+      const hasAllowedLanguage =
+        create.record.langs?.some((lang) =>
+          allowedLanguageCodes.has(lang.toLowerCase()),
+        ) ?? false
+
+      if (priority === 0) {
+        if (!hasAllowedLanguage) continue
+        if (!hasKeywordMatch) continue
+      } else if (!hasKeywordMatch && !hasAllowedLanguage) {
+        // Keep known vtubers even if languages are missing, but
+        // still require at least one signal to avoid junk.
+        continue
+      }
+
+      postsToCreate.push({
+        uri: create.uri,
+        cid: create.cid,
+        author: create.author,
+        priority,
+        indexedAt: new Date().toISOString(),
+      })
+    }
 
     if (postsToDelete.length > 0) {
       await this.db
@@ -83,3 +72,7 @@ export class FirehoseSubscription extends FirehoseSubscriptionBase {
     }
   }
 }
+
+const allowedLanguageCodes = new Set(['fr', 'en'])
+
+const excludedTextKeywords = ['ririmiaou']

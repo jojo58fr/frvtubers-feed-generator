@@ -10,7 +10,10 @@
     "publishFeed": "ts-node scripts/publishFeedGen.ts",
     "unpublishFeed": "ts-node scripts/unpublishFeedGen.ts",
     "start": "ts-node src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "fetchFrvtubersTeam": "ts-node scripts/fetchFrvtubersTeam.ts",
+    "buildVtuberCatalog": "ts-node scripts/buildVtuberCatalog.ts",
+    "refreshVtuberData": "ts-node scripts/fetchFrvtubersTeam.ts && ts-node scripts/buildVtuberCatalog.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.6.20",
